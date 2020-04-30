@@ -16,7 +16,7 @@ type Resp struct {
 	Current    int
 	Max        int
 	Remain     int
-	NexReset   int64
+	NextReset  int64
 	RetryAfter int64
 }
 
@@ -49,11 +49,11 @@ func (y *Yarl) IsAllowWithLimit(key string, max int, tWindow time.Duration) (*Re
 
 	sec, resetAt := nextResetInSec(time.Now(), tWindow)
 	r := Resp{
-		IsAllowed: false,
-		Max:       max,
-		Remain:    0,
-		Current:   try,
-		NexReset:  resetAt,
+		IsAllowed:  false,
+		Max:        max,
+		Remain:     0,
+		Current:    try,
+		NextReset:  resetAt,
 		RetryAfter: sec,
 	}
 

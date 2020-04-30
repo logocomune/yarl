@@ -62,7 +62,7 @@ func New(conf *Configuration, h http.Handler) http.HandlerFunc {
 
 		w.Header().Set(xRateLimitLimit, strconv.Itoa(yResp.Max))
 		w.Header().Set(xRateLimitRemaining, strconv.Itoa(yResp.Remain))
-		w.Header().Set(xRateLimitReset, strconv.FormatInt(yResp.NexReset, 10))
+		w.Header().Set(xRateLimitReset, strconv.FormatInt(yResp.NextReset, 10))
 
 		if !yResp.IsAllowed {
 			w.Header().Set(xRateRetryAfter, strconv.FormatInt(yResp.RetryAfter, 10))

@@ -95,7 +95,7 @@ func TestYarl_IsAllow(t *testing.T) {
 				Current:   1,
 				Max:       10,
 				Remain:    9,
-				NexReset:  0,
+				NextReset: 0,
 			},
 			wantErr: false,
 		},
@@ -113,7 +113,7 @@ func TestYarl_IsAllow(t *testing.T) {
 				Current:   10,
 				Max:       10,
 				Remain:    0,
-				NexReset:  0,
+				NextReset: 0,
 			},
 			wantErr: false,
 		},
@@ -131,7 +131,7 @@ func TestYarl_IsAllow(t *testing.T) {
 				Current:   11,
 				Max:       10,
 				Remain:    0,
-				NexReset:  0,
+				NextReset: 0,
 			},
 			wantErr: false,
 		},
@@ -162,7 +162,7 @@ func TestYarl_IsAllow(t *testing.T) {
 				return
 			}
 			if got != nil {
-				tt.want.NexReset = got.NexReset
+				tt.want.NextReset = got.NextReset
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("IsAllow() got = %v, want %v", got, tt.want)
@@ -208,7 +208,7 @@ func TestYarl_IsAllowWithLimits(t *testing.T) {
 				Current:   1,
 				Max:       10,
 				Remain:    9,
-				NexReset:  0,
+				NextReset: 0,
 			},
 			wantErr: false,
 		},
@@ -230,7 +230,7 @@ func TestYarl_IsAllowWithLimits(t *testing.T) {
 				Current:   10,
 				Max:       10,
 				Remain:    0,
-				NexReset:  0,
+				NextReset: 0,
 			},
 			wantErr: false,
 		},
@@ -252,7 +252,7 @@ func TestYarl_IsAllowWithLimits(t *testing.T) {
 				Current:   11,
 				Max:       10,
 				Remain:    0,
-				NexReset:  0,
+				NextReset: 0,
 			},
 			wantErr: false,
 		},
@@ -287,7 +287,7 @@ func TestYarl_IsAllowWithLimits(t *testing.T) {
 				return
 			}
 			if got != nil {
-				tt.want.NexReset = got.NexReset
+				tt.want.NextReset = got.NextReset
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("IsAllowWithLimit() got = %v, want %v", got, tt.want)

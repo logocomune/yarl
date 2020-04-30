@@ -60,7 +60,7 @@ func New(conf *Configuration) gin.HandlerFunc {
 
 		c.Header(xRateLimitLimit, strconv.Itoa(yResp.Max))
 		c.Header(xRateLimitRemaining, strconv.Itoa(yResp.Remain))
-		c.Header(xRateLimitReset, strconv.FormatInt(yResp.NexReset, 10))
+		c.Header(xRateLimitReset, strconv.FormatInt(yResp.NextReset, 10))
 
 		if !yResp.IsAllowed {
 			c.Header(xRateRetryAfter, strconv.FormatInt(yResp.RetryAfter, 10))
