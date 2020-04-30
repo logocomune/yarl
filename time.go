@@ -11,8 +11,10 @@ func timeKey(t time.Time, d time.Duration) string {
 	return t.UTC().Truncate(d).Format(format)
 }
 
-func nextResetInSec(t time.Time, d time.Duration) int64 {
-	return t.UTC().Truncate(d).Add(d).Unix()
+func nextResetInSec(t time.Time, d time.Duration) (int64, int64) {
+	now := t.Unix()
+	resetAt := t.UTC().Truncate(d).Add(d).Unix()
+	return resetAt - now, resetAt
 }
 
 func ttl(d time.Duration) int64 {

@@ -63,7 +63,7 @@ func New(conf *Configuration) gin.HandlerFunc {
 		c.Header(xRateLimitReset, strconv.FormatInt(yResp.NexReset, 10))
 
 		if !yResp.IsAllowed {
-			c.Header(xRateRetryAfter, strconv.FormatInt(yResp.NexReset, 10))
+			c.Header(xRateRetryAfter, strconv.FormatInt(yResp.RetryAfter, 10))
 			c.AbortWithStatus(http.StatusTooManyRequests)
 
 			return

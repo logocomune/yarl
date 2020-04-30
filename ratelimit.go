@@ -12,11 +12,12 @@ type Yarl struct {
 }
 
 type Resp struct {
-	IsAllowed bool
-	Current   int
-	Max       int
-	Remain    int
-	NexReset  int64
+	IsAllowed  bool
+	Current    int
+	Max        int
+	Remain     int
+	NexReset   int64
+	RetryAfter int64
 }
 
 type Limiter interface {
@@ -46,12 +47,14 @@ func (y *Yarl) IsAllowWithLimit(key string, max int, tWindow time.Duration) (*Re
 		return nil, err
 	}
 
+	sec, resetAt := nextResetInSec(time.Now(), tWindow)
 	r := Resp{
 		IsAllowed: false,
 		Max:       max,
 		Remain:    0,
 		Current:   try,
-		NexReset:  nextResetInSec(time.Now(), tWindow),
+		NexReset:  resetAt,
+		RetryAfter: sec,
 	}
 
 	if try > max {

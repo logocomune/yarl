@@ -24,8 +24,8 @@ type Configuration struct {
 	Headers []string
 }
 
-func NewConfigurationWithRadix(prefix string, redisHost string, redisPort int, redisDb int, limit int, tWindow time.Duration) *Configuration {
-	pool, err := radix.NewPool("tcp", redisHost, redisPort)
+func NewConfigurationWithRadix(prefix string, poolsize int, redisHost string, redisPort string, redisDb int, limit int, tWindow time.Duration) *Configuration {
+	pool, err := radix.NewPool("tcp", redisHost+":"+redisPort, poolsize)
 	if err != nil {
 		panic(err)
 	}
@@ -65,7 +65,7 @@ func New(conf *Configuration, h http.Handler) http.HandlerFunc {
 		w.Header().Set(xRateLimitReset, strconv.FormatInt(yResp.NexReset, 10))
 
 		if !yResp.IsAllowed {
-			w.Header().Set(xRateRetryAfter, strconv.FormatInt(yResp.NexReset, 10))
+			w.Header().Set(xRateRetryAfter, strconv.FormatInt(yResp.RetryAfter, 10))
 			w.WriteHeader(http.StatusTooManyRequests)
 			w.Write([]byte("Too many  requests."))
 
