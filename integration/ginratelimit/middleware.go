@@ -31,7 +31,7 @@ func NewConfigurationWithRadix(prefix string, redisHost string, redisPort int, r
 		panic(err)
 	}
 
-	r := radixyarl.New(pool, redisDb)
+	r := radixyarl.New(pool)
 
 	return &Configuration{
 		y: yarl.New(prefix, r, limit, tWindow),
