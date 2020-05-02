@@ -7,10 +7,12 @@ import (
 
 func TestTimeKey(t *testing.T) {
 	now := time.Unix(1576670136, 0)
+
 	type args struct {
 		t time.Time
 		d time.Duration
 	}
+
 	tests := []struct {
 		name string
 		args args
@@ -58,7 +60,7 @@ func TestTimeKey(t *testing.T) {
 	}
 }
 
-func Test_ttl(t *testing.T) {
+func Test_ttlByDuration(t *testing.T) {
 	type args struct {
 		d time.Duration
 	}
@@ -84,7 +86,40 @@ func Test_ttl(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ttl(tt.args.d); got != tt.want {
+			if got := ttlByDuration(tt.args.d); got != tt.want {
+				t.Errorf("ttl() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_ttl(t *testing.T) {
+	type args struct {
+		sec int64
+	}
+	tests := []struct {
+		name string
+		args args
+		want int64
+	}{
+		{
+			name: "Ten seconds",
+			args: args{
+				sec: 10,
+			},
+			want: 10 + ttlSafeWindowInSec,
+		},
+		{
+			name: "An Hour",
+			args: args{
+				sec: 3600,
+			},
+			want: 3600 + ttlSafeWindowInSec,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ttl(tt.args.sec); got != tt.want {
 				t.Errorf("ttl() = %v, want %v", got, tt.want)
 			}
 		})

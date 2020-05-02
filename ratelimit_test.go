@@ -44,8 +44,7 @@ func TestNew(t *testing.T) {
 	}
 }
 
-func NewMoclLimiter(current int, err error) *MockLimiter {
-
+func NewMocklLimiter(current int, err error) *MockLimiter {
 	return &MockLimiter{
 		count: current,
 		err:   err,
@@ -87,7 +86,7 @@ func TestYarl_IsAllow(t *testing.T) {
 				prefix:  "",
 				tWindow: 10 * time.Second,
 				max:     10,
-				limiter: NewMoclLimiter(0, nil),
+				limiter: NewMocklLimiter(0, nil),
 			},
 			args: args{key: "my_key"},
 			want: &Resp{
@@ -105,7 +104,7 @@ func TestYarl_IsAllow(t *testing.T) {
 				prefix:  "",
 				tWindow: 10 * time.Second,
 				max:     10,
-				limiter: NewMoclLimiter(9, nil),
+				limiter: NewMocklLimiter(9, nil),
 			},
 			args: args{key: "my_key"},
 			want: &Resp{
@@ -123,7 +122,7 @@ func TestYarl_IsAllow(t *testing.T) {
 				prefix:  "",
 				tWindow: 0,
 				max:     10,
-				limiter: NewMoclLimiter(10, nil),
+				limiter: NewMocklLimiter(10, nil),
 			},
 			args: args{key: "my_key"},
 			want: &Resp{
@@ -141,7 +140,7 @@ func TestYarl_IsAllow(t *testing.T) {
 				prefix:  "",
 				tWindow: 0,
 				max:     10,
-				limiter: NewMoclLimiter(0, errors.New("Generic error")),
+				limiter: NewMocklLimiter(0, errors.New("Generic error")),
 			},
 			args:    args{key: "my_key"},
 			want:    nil,
@@ -163,6 +162,7 @@ func TestYarl_IsAllow(t *testing.T) {
 			}
 			if got != nil {
 				tt.want.NextReset = got.NextReset
+				tt.want.RetryAfter = got.RetryAfter
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("IsAllow() got = %v, want %v", got, tt.want)
@@ -196,7 +196,7 @@ func TestYarl_IsAllowWithLimits(t *testing.T) {
 				prefix:  "",
 				tWindow: 1000 * time.Second,
 				max:     1000,
-				limiter: NewMoclLimiter(0, nil),
+				limiter: NewMocklLimiter(0, nil),
 			},
 			args: args{
 				key:     "my_key",
@@ -218,7 +218,7 @@ func TestYarl_IsAllowWithLimits(t *testing.T) {
 				prefix:  "",
 				tWindow: 1000 * time.Second,
 				max:     1000,
-				limiter: NewMoclLimiter(9, nil),
+				limiter: NewMocklLimiter(9, nil),
 			},
 			args: args{
 				key:     "my_key",
@@ -240,7 +240,7 @@ func TestYarl_IsAllowWithLimits(t *testing.T) {
 				prefix:  "",
 				tWindow: 0,
 				max:     10,
-				limiter: NewMoclLimiter(10, nil),
+				limiter: NewMocklLimiter(10, nil),
 			},
 			args: args{
 				key:     "my_key",
@@ -262,7 +262,7 @@ func TestYarl_IsAllowWithLimits(t *testing.T) {
 				prefix:  "",
 				tWindow: 0,
 				max:     10,
-				limiter: NewMoclLimiter(0, errors.New("Generic error")),
+				limiter: NewMocklLimiter(0, errors.New("generic error")),
 			},
 			args: args{
 				key:     "my_key",
@@ -273,6 +273,7 @@ func TestYarl_IsAllowWithLimits(t *testing.T) {
 			wantErr: true,
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			y := &Yarl{
@@ -288,6 +289,7 @@ func TestYarl_IsAllowWithLimits(t *testing.T) {
 			}
 			if got != nil {
 				tt.want.NextReset = got.NextReset
+				tt.want.RetryAfter = got.RetryAfter
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("IsAllowWithLimit() got = %v, want %v", got, tt.want)

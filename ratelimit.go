@@ -24,7 +24,7 @@ type Limiter interface {
 	Inc(key string, ttlSeconds int64) (int, error)
 }
 
-// New initialize Yarl
+// New initialize Yarl.
 func New(prefix string, l Limiter, max int, timeWindow time.Duration) Yarl {
 	return Yarl{
 		prefix:  prefix,
@@ -34,20 +34,21 @@ func New(prefix string, l Limiter, max int, timeWindow time.Duration) Yarl {
 	}
 }
 
-// IsAllow evaluate limit for key
+// IsAllow evaluate limit for key.
 func (y *Yarl) IsAllow(key string) (*Resp, error) {
 	return y.IsAllowWithLimit(key, y.max, y.tWindow)
 }
 
-// IsAllowWithLimit evaluate custom limit for key
+// IsAllowWithLimit evaluate custom limit for key.
 func (y *Yarl) IsAllowWithLimit(key string, max int, tWindow time.Duration) (*Resp, error) {
-	try, err := y.limiter.Inc(y.keyBuilder(key), ttl(tWindow))
+	sec, resetAt := nextResetInSec(time.Now(), tWindow)
+
+	try, err := y.limiter.Inc(y.keyBuilder(key), ttl(sec+ttlSafeWindowInSec))
 
 	if err != nil {
 		return nil, err
 	}
 
-	sec, resetAt := nextResetInSec(time.Now(), tWindow)
 	r := Resp{
 		IsAllowed:  false,
 		Max:        max,

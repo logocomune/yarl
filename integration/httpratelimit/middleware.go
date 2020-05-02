@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/logocomune/yarl"
+	"github.com/logocomune/yarl/integration/limiter/lruyarl"
 	"github.com/logocomune/yarl/integration/limiter/radixyarl"
 	"github.com/mediocregopher/radix/v3"
 )
@@ -37,8 +38,18 @@ func NewConfigurationWithRadix(prefix string, poolsize int, redisHost string, re
 	}
 }
 
-func New(conf *Configuration, h http.Handler) http.HandlerFunc {
+func NewConfigurationWithLru(prefix string, size int, limit int, tWindow time.Duration) *Configuration {
+	r, err := lruyarl.New(size)
+	if err != nil {
+		panic(err)
+	}
 
+	return &Configuration{
+		y: yarl.New(prefix, r, limit, tWindow),
+	}
+}
+
+func New(conf *Configuration, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		key := ""
 		if conf.UseIP {
@@ -81,5 +92,12 @@ func getIP(r *http.Request) string {
 	if forwarded != "" {
 		return forwarded
 	}
-	return r.RemoteAddr
+
+	ipComponents := strings.Split(r.RemoteAddr, ":")
+
+	if len(ipComponents) == 0 {
+		return ipComponents[0]
+	}
+
+	return strings.Join(ipComponents[:len(ipComponents)-1], ":")
 }
