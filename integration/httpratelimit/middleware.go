@@ -26,12 +26,20 @@ type Configuration struct {
 }
 
 func NewConfigurationWithRadix(prefix string, poolsize int, redisHost string, redisPort string, redisDb int, limit int, tWindow time.Duration) *Configuration {
-	pool, err := radix.NewPool("tcp", redisHost+":"+redisPort, poolsize)
+	customConnFunc := func(network, addr string) (radix.Conn, error) {
+		return radix.Dial(network, addr,
+			radix.DialTimeout(10*time.Second),
+			radix.DialSelectDB(redisDb),
+		)
+	}
+
+
+	pool, err := radix.NewPool("tcp", redisHost+":"+redisPort, poolsize,radix.PoolConnFunc(customConnFunc))
 	if err != nil {
 		panic(err)
 	}
 
-	r := radixyarl.New(pool, redisDb)
+	r := radixyarl.New(pool)
 
 	return &Configuration{
 		y: yarl.New(prefix, r, limit, tWindow),
