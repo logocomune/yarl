@@ -43,7 +43,7 @@ func (y *Yarl) IsAllow(key string) (*Resp, error) {
 func (y *Yarl) IsAllowWithLimit(key string, max int, tWindow time.Duration) (*Resp, error) {
 	sec, resetAt := nextResetInSec(time.Now(), tWindow)
 
-	try, err := y.limiter.Inc(y.keyBuilder(key), ttl(sec+ttlSafeWindowInSec))
+	try, err := y.limiter.Inc(y.keyBuilder(key, tWindow), ttl(sec+ttlSafeWindowInSec))
 
 	if err != nil {
 		return nil, err
@@ -68,8 +68,8 @@ func (y *Yarl) IsAllowWithLimit(key string, max int, tWindow time.Duration) (*Re
 	return &r, nil
 }
 
-func (y *Yarl) keyBuilder(k string) string {
-	s := timeKey(time.Now(), y.tWindow) + "_" + k
+func (y *Yarl) keyBuilder(k string, tWindow time.Duration) string {
+	s := timeKey(time.Now(), tWindow) + "_" + k
 	if y.prefix != "" {
 		s = y.prefix + "_" + s
 	}
