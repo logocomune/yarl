@@ -33,8 +33,7 @@ func NewConfigurationWithRadix(prefix string, poolsize int, redisHost string, re
 		)
 	}
 
-
-	pool, err := radix.NewPool("tcp", redisHost+":"+redisPort, poolsize,radix.PoolConnFunc(customConnFunc))
+	pool, err := radix.NewPool("tcp", redisHost+":"+redisPort, poolsize, radix.PoolConnFunc(customConnFunc))
 	if err != nil {
 		panic(err)
 	}
@@ -42,11 +41,11 @@ func NewConfigurationWithRadix(prefix string, poolsize int, redisHost string, re
 	r := radixyarl.New(pool)
 
 	return &Configuration{
-		y: yarl.New(prefix, r, limit, tWindow),
+		y: yarl.New(prefix, r, int64(limit), tWindow),
 	}
 }
 
-func NewConfigurationWithLru(prefix string, size int, limit int, tWindow time.Duration) *Configuration {
+func NewConfigurationWithLru(prefix string, size int, limit int64, tWindow time.Duration) *Configuration {
 	r, err := lruyarl.New(size)
 	if err != nil {
 		panic(err)
@@ -79,8 +78,8 @@ func New(conf *Configuration, h http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		w.Header().Set(xRateLimitLimit, strconv.Itoa(yResp.Max))
-		w.Header().Set(xRateLimitRemaining, strconv.Itoa(yResp.Remain))
+		w.Header().Set(xRateLimitLimit, strconv.FormatInt(yResp.Max, 10))
+		w.Header().Set(xRateLimitRemaining, strconv.FormatInt(yResp.Remain, 10))
 		w.Header().Set(xRateLimitReset, strconv.FormatInt(yResp.NextReset, 10))
 
 		if !yResp.IsAllowed {

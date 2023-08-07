@@ -5,16 +5,16 @@ import (
 )
 
 type Pool struct {
-	pool    *radix.Pool
+	pool *radix.Pool
 }
 
 func New(p *radix.Pool) *Pool {
 	return &Pool{
-		pool:    p,
+		pool: p,
 	}
 }
 
-func (r *Pool) Inc(key string, ttlSeconds int64) (int, error) {
+func (r *Pool) Inc(key string, ttlSeconds int64) (int64, error) {
 	var count int
 	pp := radix.Pipeline(
 		radix.Cmd(&count, "INCR", key),
@@ -25,5 +25,5 @@ func (r *Pool) Inc(key string, ttlSeconds int64) (int, error) {
 		return -1, err
 	}
 
-	return count, nil
+	return int64(count), nil
 }

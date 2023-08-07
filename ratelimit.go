@@ -7,25 +7,25 @@ import (
 type Yarl struct {
 	prefix  string
 	tWindow time.Duration
-	max     int
+	max     int64
 	limiter Limiter
 }
 
 type Resp struct {
 	IsAllowed  bool
-	Current    int
-	Max        int
-	Remain     int
+	Current    int64
+	Max        int64
+	Remain     int64
 	NextReset  int64
 	RetryAfter int64
 }
 
 type Limiter interface {
-	Inc(key string, ttlSeconds int64) (int, error)
+	Inc(key string, ttlSeconds int64) (int64, error)
 }
 
 // New initialize Yarl.
-func New(prefix string, l Limiter, max int, timeWindow time.Duration) Yarl {
+func New(prefix string, l Limiter, max int64, timeWindow time.Duration) Yarl {
 	return Yarl{
 		prefix:  prefix,
 		tWindow: timeWindow,
@@ -40,7 +40,7 @@ func (y *Yarl) IsAllow(key string) (*Resp, error) {
 }
 
 // IsAllowWithLimit evaluate custom limit for key.
-func (y *Yarl) IsAllowWithLimit(key string, max int, tWindow time.Duration) (*Resp, error) {
+func (y *Yarl) IsAllowWithLimit(key string, max int64, tWindow time.Duration) (*Resp, error) {
 	sec, resetAt := nextResetInSec(time.Now(), tWindow)
 
 	try, err := y.limiter.Inc(y.keyBuilder(key, tWindow), ttl(sec+ttlSafeWindowInSec))

@@ -20,7 +20,7 @@ func New(size int) (*LRU, error) {
 	return &LRU{cache: cache}, nil
 }
 
-func (l *LRU) Inc(key string, _ int64) (int, error) {
+func (l *LRU) Inc(key string, _ int64) (int64, error) {
 	curr := 0
 
 	l.Lock()
@@ -34,5 +34,5 @@ func (l *LRU) Inc(key string, _ int64) (int, error) {
 	curr++
 	l.cache.Add(key, curr)
 
-	return curr, nil
+	return int64(curr), nil
 }
