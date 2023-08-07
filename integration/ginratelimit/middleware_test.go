@@ -15,7 +15,7 @@ import (
 func TestMiddlewareWithIp(t *testing.T) {
 	max := 10
 	configuration := Configuration{
-		y:       yarl.New("prefix", NewMoclLimiter(0, nil, t), max, time.Hour),
+		y:       yarl.New("prefix", NewMoclLimiter(0, nil, t), int64(max), time.Hour),
 		UseIP:   true,
 		Headers: nil,
 	}
@@ -56,7 +56,7 @@ func TestMiddlewareWithIp(t *testing.T) {
 func TestMiddlewareWithIpAndHeader(t *testing.T) {
 	max := 10
 	configuration := Configuration{
-		y:       yarl.New("prefix", NewMoclLimiter(0, nil, t), max, time.Hour),
+		y:       yarl.New("prefix", NewMoclLimiter(0, nil, t), int64(max), time.Hour),
 		UseIP:   true,
 		Headers: []string{"HEADER1"},
 	}
@@ -178,9 +178,9 @@ type MockLimiter struct {
 	t        *testing.T
 }
 
-func (m *MockLimiter) Inc(key string, ttlSeconds int64) (int, error) {
+func (m *MockLimiter) Inc(key string, ttlSeconds int64) (int64, error) {
 	m.counters[key]++
 	m.t.Logf("Key: '%s' , count: '%d'\n", key, m.counters[key])
 
-	return m.counters[key], m.err
+	return int64(m.counters[key]), m.err
 }

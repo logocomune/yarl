@@ -25,7 +25,7 @@ type Configuration struct {
 	Headers []string
 }
 
-func NewConfigurationWithRadix(prefix string, redisHost string, redisPort int, redisDb int, limit int, tWindow time.Duration) *Configuration {
+func NewConfigurationWithRadix(prefix string, redisHost string, redisPort int, redisDb int, limit int64, tWindow time.Duration) *Configuration {
 	pool, err := radix.NewPool("tcp", redisHost, redisPort)
 	if err != nil {
 		panic(err)
@@ -58,8 +58,8 @@ func New(conf *Configuration) gin.HandlerFunc {
 			return
 		}
 
-		c.Header(xRateLimitLimit, strconv.Itoa(yResp.Max))
-		c.Header(xRateLimitRemaining, strconv.Itoa(yResp.Remain))
+		c.Header(xRateLimitLimit, strconv.FormatInt(yResp.Max, 10))
+		c.Header(xRateLimitRemaining, strconv.FormatInt(yResp.Remain, 10))
 		c.Header(xRateLimitReset, strconv.FormatInt(yResp.NextReset, 10))
 
 		if !yResp.IsAllowed {
