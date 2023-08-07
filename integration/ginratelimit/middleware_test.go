@@ -1,6 +1,7 @@
 package ginratelimit
 
 import (
+	"github.com/logocomune/yarl/v2"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -8,7 +9,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/logocomune/yarl"
 	"github.com/stretchr/testify/assert"
 )
 

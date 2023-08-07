@@ -1,14 +1,14 @@
 package ginratelimit
 
 import (
+	"github.com/logocomune/yarl/v2"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/logocomune/yarl"
-	"github.com/logocomune/yarl/integration/limiter/radixyarl"
+	"github.com/logocomune/yarl/v2/integration/limiter/radixyarl"
 	"github.com/mediocregopher/radix/v3"
 )
 

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/logocomune/yarl/integration/httpratelimit"
+	"github.com/logocomune/yarl/v2/integration/httpratelimit"
 )
 
 func main() {

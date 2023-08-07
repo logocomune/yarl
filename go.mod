@@ -1,4 +1,4 @@
-module github.com/logocomune/yarl
+module github.com/logocomune/yarl/v2
 
 go 1.20
 
