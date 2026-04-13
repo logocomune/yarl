@@ -6,8 +6,7 @@
 // denied.
 //
 // Storage backends are swappable through the [Limiter] interface. Out-of-the-box
-// implementations are available for in-memory LRU caches and three Redis client libraries
-// (Radix, Redigo, and go-redis).
+// implementations are available for in-memory LRU caches and Redis via go-redis.
 package yarl
 
 import (

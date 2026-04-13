@@ -8,7 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/logocomune/yarl/v2"
+	"github.com/logocomune/yarl/v3"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -197,6 +198,12 @@ func TestGetIP(t *testing.T) {
 			expectedIP:   "203.0.113.1",
 		},
 		{
+			name:         "X-Forwarded-For takes first IP from list",
+			forwardedFor: "203.0.113.1, 10.0.0.1",
+			remoteAddr:   "10.0.0.1:1234",
+			expectedIP:   "203.0.113.1",
+		},
+		{
 			name:         "RemoteAddr IPv4 fallback",
 			forwardedFor: "",
 			remoteAddr:   "192.168.1.1:5678",
@@ -206,13 +213,19 @@ func TestGetIP(t *testing.T) {
 			name:         "RemoteAddr IPv6 fallback",
 			forwardedFor: "",
 			remoteAddr:   "[::1]:8080",
-			expectedIP:   "[::1]",
+			expectedIP:   "::1",
 		},
 		{
 			name:         "RemoteAddr hostname fallback",
 			forwardedFor: "",
 			remoteAddr:   "localhost:8080",
 			expectedIP:   "localhost",
+		},
+		{
+			name:         "RemoteAddr without port is returned as is",
+			forwardedFor: "",
+			remoteAddr:   "192.168.1.1",
+			expectedIP:   "192.168.1.1",
 		},
 	}
 
@@ -227,6 +240,19 @@ func TestGetIP(t *testing.T) {
 			assert.Equal(t, tt.expectedIP, got)
 		})
 	}
+}
+
+func TestNewConfigurationWithRedisClient_CloseIsNoOp(t *testing.T) {
+	client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+	defer client.Close()
+
+	conf := NewConfigurationWithRedisClient("prefix", client, 10, time.Minute)
+	assert.NoError(t, conf.Close())
+}
+
+func TestNewConfigurationWithGoRedis_Close(t *testing.T) {
+	conf := NewConfigurationWithGoRedis("prefix", "localhost:6379", 0, 10, time.Minute)
+	assert.NoError(t, conf.Close())
 }
 
 // TestMiddleware_LimiterError verifies that a limiter error produces HTTP 500.

@@ -7,15 +7,16 @@
 package httpratelimit
 
 import (
-	yarl "github.com/logocomune/yarl/v2"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/logocomune/yarl/v2/integration/limiter/lruyarl"
-	"github.com/logocomune/yarl/v2/integration/limiter/radixyarl"
-	"github.com/mediocregopher/radix/v3"
+	yarl "github.com/logocomune/yarl/v3"
+	"github.com/logocomune/yarl/v3/integration/limiter/goredisyarl"
+	"github.com/logocomune/yarl/v3/integration/limiter/lruyarl"
+	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -26,11 +27,13 @@ const (
 )
 
 // Configuration holds the settings for the rate-limit middleware.
-// Create one with [NewConfigurationWithRadix] or [NewConfigurationWithLru],
-// or assemble it manually if you need a custom [yarl.Limiter] backend.
+// Create one with [NewConfiguration], [NewConfigurationWithGoRedis], or
+// [NewConfigurationWithLru].
 type Configuration struct {
 	// y is the underlying YARL rate limiter.
 	y yarl.Yarl
+	// closeFn releases resources owned by the configuration, when present.
+	closeFn func() error
 	// UseIP causes the client IP address to be included in the rate-limit key
 	// so that each client gets its own counter.
 	UseIP bool
@@ -39,34 +42,37 @@ type Configuration struct {
 	Headers []string
 }
 
-// NewConfigurationWithRadix creates a [Configuration] backed by a Redis connection
-// pool managed by the Radix client library. The pool is created internally; use this
-// helper when you do not already have a Radix pool.
+// NewConfiguration creates a [Configuration] from any [yarl.Limiter] backend.
+func NewConfiguration(prefix string, l yarl.Limiter, limit int64, tWindow time.Duration) *Configuration {
+	return &Configuration{
+		y: yarl.New(prefix, l, limit, tWindow),
+	}
+}
+
+// NewConfigurationWithRedisClient creates a [Configuration] from an existing
+// go-redis client. The caller retains ownership of client lifecycle.
+func NewConfigurationWithRedisClient(prefix string, client *redis.Client, limit int64, tWindow time.Duration) *Configuration {
+	return NewConfiguration(prefix, goredisyarl.NewPool(client), limit, tWindow)
+}
+
+// NewConfigurationWithGoRedis creates a [Configuration] backed by a go-redis client.
+// The client is created internally; use this helper when you do not already have a
+// configured *redis.Client.
 //
 //   - prefix namespaces the Redis keys.
-//   - poolsize is the number of connections in the Radix pool.
-//   - redisHost / redisPort / redisDb identify the Redis instance.
+//   - redisAddr identifies the Redis instance, e.g. "localhost:6379".
+//   - redisDb is the Redis database index.
 //   - limit is the maximum number of requests per tWindow.
-//   - tWindow is the duration of the sliding window (e.g. time.Minute).
-//
-// Panics if the pool cannot be created.
-func NewConfigurationWithRadix(prefix string, poolsize int, redisHost string, redisPort string, redisDb int, limit int, tWindow time.Duration) *Configuration {
-	customConnFunc := func(network, addr string) (radix.Conn, error) {
-		return radix.Dial(network, addr,
-			radix.DialTimeout(10*time.Second),
-			radix.DialSelectDB(redisDb),
-		)
-	}
-
-	pool, err := radix.NewPool("tcp", redisHost+":"+redisPort, poolsize, radix.PoolConnFunc(customConnFunc))
-	if err != nil {
-		panic(err)
-	}
-
-	r := radixyarl.New(pool)
+//   - tWindow is the duration of the rate-limit window (e.g. time.Minute).
+func NewConfigurationWithGoRedis(prefix string, redisAddr string, redisDb int, limit int64, tWindow time.Duration) *Configuration {
+	client := redis.NewClient(&redis.Options{
+		Addr: redisAddr,
+		DB:   redisDb,
+	})
 
 	return &Configuration{
-		y: yarl.New(prefix, r, int64(limit), tWindow),
+		y:       yarl.New(prefix, goredisyarl.NewPool(client), limit, tWindow),
+		closeFn: client.Close,
 	}
 }
 
@@ -86,9 +92,7 @@ func NewConfigurationWithLru(prefix string, size int, limit int64, tWindow time.
 		panic(err)
 	}
 
-	return &Configuration{
-		y: yarl.New(prefix, r, limit, tWindow),
-	}
+	return NewConfiguration(prefix, r, limit, tWindow)
 }
 
 // New wraps handler h with rate-limiting logic defined by conf.
@@ -123,7 +127,7 @@ func New(conf *Configuration, h http.HandlerFunc) http.HandlerFunc {
 		if !yResp.IsAllowed {
 			w.Header().Set(xRateRetryAfter, strconv.FormatInt(yResp.RetryAfter, 10))
 			w.WriteHeader(http.StatusTooManyRequests)
-			w.Write([]byte("Too many  requests."))
+			w.Write([]byte("Too many requests."))
 
 			return
 		}
@@ -132,19 +136,30 @@ func New(conf *Configuration, h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// Close releases any resources owned by the configuration.
+func (c *Configuration) Close() error {
+	if c == nil || c.closeFn == nil {
+		return nil
+	}
+
+	return c.closeFn()
+}
+
 // getIP extracts the client IP from the request. It prefers the X-Forwarded-For header
 // (set by reverse proxies) and falls back to RemoteAddr.
 func getIP(r *http.Request) string {
 	forwarded := r.Header.Get("X-FORWARDED-FOR")
 	if forwarded != "" {
-		return forwarded
+		parts := strings.Split(forwarded, ",")
+		if len(parts) > 0 {
+			return strings.TrimSpace(parts[0])
+		}
 	}
 
-	ipComponents := strings.Split(r.RemoteAddr, ":")
-
-	if len(ipComponents) == 0 {
-		return ipComponents[0]
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil {
+		return host
 	}
 
-	return strings.Join(ipComponents[:len(ipComponents)-1], ":")
+	return strings.TrimSpace(r.RemoteAddr)
 }

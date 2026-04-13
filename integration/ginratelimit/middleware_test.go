@@ -9,7 +9,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/logocomune/yarl/v2"
+	"github.com/logocomune/yarl/v3"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -280,4 +281,17 @@ func TestGinMiddleware_RetryAfterHeader(t *testing.T) {
 	retryAfter, err := strconv.ParseInt(w.Header().Get(xRateRetryAfter), 10, 64)
 	assert.NoError(t, err)
 	assert.Greater(t, retryAfter, int64(0))
+}
+
+func TestNewConfigurationWithRedisClient_CloseIsNoOp(t *testing.T) {
+	client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+	defer client.Close()
+
+	conf := NewConfigurationWithRedisClient("prefix", client, 10, time.Minute)
+	assert.NoError(t, conf.Close())
+}
+
+func TestNewConfigurationWithGoRedis_Close(t *testing.T) {
+	conf := NewConfigurationWithGoRedis("prefix", "localhost:6379", 0, 10, time.Minute)
+	assert.NoError(t, conf.Close())
 }

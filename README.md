@@ -1,9 +1,9 @@
 # YARL — Yet Another Rate Limiter
 
 [![Build Status](https://travis-ci.org/logocomune/yarl.svg?branch=master)](https://travis-ci.org/logocomune/yarl)
-[![Go Report Card](https://goreportcard.com/badge/github.com/logocomune/yarl/v2)](https://goreportcard.com/report/github.com/logocomune/yarl/v2)
+[![Go Report Card](https://goreportcard.com/badge/github.com/logocomune/yarl/v3)](https://goreportcard.com/report/github.com/logocomune/yarl/v3)
 [![codecov](https://codecov.io/gh/logocomune/yarl/branch/master/graph/badge.svg)](https://codecov.io/gh/logocomune/yarl)
-[![Go Reference](https://pkg.go.dev/badge/github.com/logocomune/yarl/v2.svg)](https://pkg.go.dev/github.com/logocomune/yarl/v2)
+[![Go Reference](https://pkg.go.dev/badge/github.com/logocomune/yarl/v3.svg)](https://pkg.go.dev/github.com/logocomune/yarl/v3)
 
 YARL is a Go library that implements **time-window rate limiting** with pluggable storage backends. It can limit any operation — HTTP requests, API calls, database writes — by counting how many times a given key has been used within a configurable time window.
 
@@ -12,7 +12,7 @@ YARL is a Go library that implements **time-window rate limiting** with pluggabl
 ## Features
 
 - **Time-window based** — limits reset automatically at the end of each window (e.g. 100 req/minute)
-- **Pluggable backends** — in-memory LRU cache or Redis (via Radix, Redigo, or go-redis)
+- **Pluggable backends** — in-memory LRU cache or Redis via go-redis
 - **Distributed-ready** — use Redis backends to share rate-limit counters across multiple instances
 - **Flexible key** — limit by IP address, request headers, user ID, or any combination
 - **Standard HTTP headers** — middleware sets `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, and `Retry-After`
@@ -23,7 +23,7 @@ YARL is a Go library that implements **time-window rate limiting** with pluggabl
 ## Installation
 
 ```bash
-go get github.com/logocomune/yarl/v2
+go get github.com/logocomune/yarl/v3
 ```
 
 ---
@@ -39,8 +39,8 @@ import (
     "fmt"
     "time"
 
-    "github.com/logocomune/yarl/v2"
-    "github.com/logocomune/yarl/v2/integration/limiter/lruyarl"
+    "github.com/logocomune/yarl/v3"
+    "github.com/logocomune/yarl/v3/integration/limiter/lruyarl"
 )
 
 func main() {
@@ -86,7 +86,7 @@ Request 7: DENIED   (retry after 7s)
 ### In-Memory LRU (single process)
 
 ```go
-import "github.com/logocomune/yarl/v2/integration/limiter/lruyarl"
+import "github.com/logocomune/yarl/v3/integration/limiter/lruyarl"
 
 backend, err := lruyarl.New(1000) // track up to 1 000 keys
 ```
@@ -100,44 +100,17 @@ The LRU cache is bounded: when full it evicts the least recently used key. Suita
 ```go
 import (
     "github.com/redis/go-redis/v9"
-    goredisynarl "github.com/logocomune/yarl/v2/integration/limiter/goredisyarl"
+    "github.com/logocomune/yarl/v3/integration/limiter/goredisyarl"
 )
 
 client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
-backend := goredisynarl.NewPool(client)
+backend := goredisyarl.NewPool(client)
 ```
 
----
-
-### Redis — Radix
-
-```go
-import (
-    "github.com/mediocregopher/radix/v3"
-    "github.com/logocomune/yarl/v2/integration/limiter/radixyarl"
-)
-
-pool, err := radix.NewPool("tcp", "localhost:6379", 10)
-backend := radixyarl.New(pool)
-```
-
----
-
-### Redis — Redigo
-
-```go
-import (
-    "github.com/gomodule/redigo/redis"
-    redigoyarl "github.com/logocomune/yarl/v2/integration/limiter/redigoyarl"
-)
-
-pool := &redis.Pool{
-    Dial: func() (redis.Conn, error) {
-        return redis.Dial("tcp", "localhost:6379")
-    },
-}
-backend := redigoyarl.NewPool(pool, 0) // 0 = database index
-```
+Middleware helpers also support both ownership models: use
+`NewConfigurationWithGoRedis(...)` to let YARL create the Redis client, or
+`NewConfigurationWithRedisClient(...)` to reuse an existing client. If YARL
+creates the client internally, call `conf.Close()` during shutdown.
 
 ---
 
@@ -152,7 +125,7 @@ import (
     "net/http"
     "time"
 
-    "github.com/logocomune/yarl/v2/integration/httpratelimit"
+    "github.com/logocomune/yarl/v3/integration/httpratelimit"
 )
 
 func main() {
@@ -176,18 +149,17 @@ conf.UseIP = true
 conf.Headers = []string{"X-Tenant-ID"} // separate bucket per tenant
 ```
 
-### Using a Redis backend (Radix)
+### Using a Redis backend (go-redis)
 
 ```go
-conf := httpratelimit.NewConfigurationWithRadix(
-    "api",         // prefix
-    10,            // pool size
-    "localhost",   // Redis host
-    "6379",        // Redis port
-    0,             // Redis DB
-    100,           // max requests
-    time.Minute,   // window
+conf := httpratelimit.NewConfigurationWithGoRedis(
+    "api",            // prefix
+    "localhost:6379", // Redis address
+    0,                // Redis DB
+    100,              // max requests
+    time.Minute,      // window
 )
+defer conf.Close()
 conf.UseIP = true
 ```
 
@@ -211,21 +183,15 @@ import (
     "time"
 
     "github.com/gin-gonic/gin"
-    "github.com/logocomune/yarl/v2"
-    "github.com/logocomune/yarl/v2/integration/ginratelimit"
-    "github.com/logocomune/yarl/v2/integration/limiter/lruyarl"
+    "github.com/logocomune/yarl/v3/integration/ginratelimit"
+    "github.com/logocomune/yarl/v3/integration/limiter/lruyarl"
 )
 
 func main() {
     backend, _ := lruyarl.New(10000)
-    limiter := yarl.New("api", backend, 100, time.Minute)
-
-    conf := &ginratelimit.Configuration{
-        UseIP:   true,
-        Headers: []string{"X-Tenant-ID"},
-    }
-    // Inject the limiter via the embedded Yarl field (or use NewConfigurationWithRadix)
-    _ = limiter // assign to conf.y via NewConfigurationWithRadix or direct struct
+    conf := ginratelimit.NewConfiguration("api", backend, 100, time.Minute)
+    conf.UseIP = true
+    conf.Headers = []string{"X-Tenant-ID"}
 
     r := gin.Default()
     r.Use(ginratelimit.New(conf))
@@ -241,14 +207,14 @@ func main() {
 Or use the built-in Redis helper:
 
 ```go
-conf := ginratelimit.NewConfigurationWithRadix(
-    "api",       // prefix
-    "localhost", // Redis host
-    10,          // pool size
-    0,           // Redis DB
-    100,         // max requests
-    time.Minute, // window
+conf := ginratelimit.NewConfigurationWithGoRedis(
+    "api",            // prefix
+    "localhost:6379", // Redis address
+    0,                // Redis DB
+    100,              // max requests
+    time.Minute,      // window
 )
+defer conf.Close()
 conf.UseIP = true
 r.Use(ginratelimit.New(conf))
 ```
