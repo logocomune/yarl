@@ -1,310 +1,381 @@
 # YARL — Yet Another Rate Limiter
 
-[![Build Status](https://travis-ci.org/logocomune/yarl.svg?branch=master)](https://travis-ci.org/logocomune/yarl)
-[![Go Report Card](https://goreportcard.com/badge/github.com/logocomune/yarl/v3)](https://goreportcard.com/report/github.com/logocomune/yarl/v3)
-[![codecov](https://codecov.io/gh/logocomune/yarl/branch/master/graph/badge.svg)](https://codecov.io/gh/logocomune/yarl)
-[![Go Reference](https://pkg.go.dev/badge/github.com/logocomune/yarl/v3.svg)](https://pkg.go.dev/github.com/logocomune/yarl/v3)
+[![Go Report Card](https://goreportcard.com/badge/github.com/logocomune/yarl/v4)](https://goreportcard.com/report/github.com/logocomune/yarl/v4)
+[![Go Reference](https://pkg.go.dev/badge/github.com/logocomune/yarl/v4.svg)](https://pkg.go.dev/github.com/logocomune/yarl/v4)
 
-YARL is a Go library that implements **time-window rate limiting** with pluggable storage backends. It can limit any operation — HTTP requests, API calls, database writes — by counting how many times a given key has been used within a configurable time window.
+YARL is a Go rate-limiting library with pluggable storage backends. Define one or more **rules** (max requests + window duration), call `Check` on each request with an identity key, and inspect per-rule results. All rules are evaluated in a **single Redis pipeline round-trip** when using the Redis backend.
 
 ---
 
 ## Features
 
-- **Time-window based** — limits reset automatically at the end of each window (e.g. 100 req/minute)
-- **Pluggable backends** — in-memory LRU cache or Redis via go-redis
-- **Distributed-ready** — use Redis backends to share rate-limit counters across multiple instances
-- **Flexible key** — limit by IP address, request headers, user ID, or any combination
-- **Standard HTTP headers** — middleware sets `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, and `Retry-After`
-- **Framework integrations** — drop-in middleware for the standard `net/http` package and the [Gin](https://github.com/gin-gonic/gin) framework
+- **Multi-rule evaluation** — define burst, sustained, and daily limits as separate rules; all are checked in one call
+- **Single Redis round-trip** — all rules share one pipeline via `BatchBackend`; N rules do not mean N network calls
+- **Stable Redis keys** — key format is `{ruleID}:{userKey}`; TTL is the window; no clock math, no time-bucket suffix
+- **Redis Standalone + Sentinel** — `redis.UniversalClient` covers both; requires Redis ≥ 7.0
+- **LRU with real TTL** — one `expirable.LRU` per rule; each rule's window is enforced independently
+- **Flexible identity key** — limit by IP, request headers, user ID, or any combination
+- **Framework integrations** — drop-in middleware for `net/http` and [Gin](https://github.com/gin-gonic/gin)
 
 ---
 
 ## Installation
 
 ```bash
-go get github.com/logocomune/yarl/v3
+go get github.com/logocomune/yarl/v4
 ```
 
 ---
 
-## Quick Start
+## Core concepts
 
-### Core library
+```
+Rule          — one rate-limit policy: ID, TTL (window duration), MaxRequests
+Limiter       — holds a fixed set of Rules; call Check(ctx, userKey) per request
+RuleResult    — outcome for one Rule: Allowed, Current, Max, ExpiresAt, RetryAfter
+Backend       — storage interface; implement to plug in any store
+BatchBackend  — optional extension of Backend for single-round-trip multi-key evaluation
+```
+
+A **userKey** is any string that identifies who is being limited — a client IP, a user ID, a tenant, or a combination. The backend key is `{rule.ID}:{userKey}`.
+
+---
+
+## Quick start — in-memory LRU
+
+The simplest setup: no external services, state is local to the process.
 
 ```go
 package main
 
 import (
+    "context"
     "fmt"
     "time"
 
-    "github.com/logocomune/yarl/v3"
-    "github.com/logocomune/yarl/v3/integration/limiter/lruyarl"
+    "github.com/logocomune/yarl/v4"
+    "github.com/logocomune/yarl/v4/integration/backend/lrubackend"
 )
 
 func main() {
-    // Create an in-memory LRU backend (1 000 tracked keys max)
-    backend, err := lruyarl.New(1000)
-    if err != nil {
-        panic(err)
+    rules := []yarl.Rule{
+        {ID: "burst",     TTL: 10 * time.Second, MaxRequests: 3},
+        {ID: "sustained", TTL: time.Minute,      MaxRequests: 10},
     }
 
-    // Allow 5 operations per 10 seconds, namespaced under "myapp"
-    limiter := yarl.New("myapp", backend, 5, 10*time.Second)
+    backend := lrubackend.New(rules, 1000) // track up to 1 000 distinct users per rule
+    limiter  := yarl.New(backend, rules...)
 
-    for i := 1; i <= 7; i++ {
-        resp, err := limiter.IsAllow("user:42")
-        if err != nil {
-            panic(err)
-        }
-        if resp.IsAllowed {
-            fmt.Printf("Request %d: ALLOWED  (remaining: %d)\n", i, resp.Remain)
-        } else {
-            fmt.Printf("Request %d: DENIED   (retry after %ds)\n", i, resp.RetryAfter)
+    ctx := context.Background()
+
+    for i := 1; i <= 5; i++ {
+        results, _ := limiter.Check(ctx, "user:42")
+        for _, r := range results {
+            if r.Allowed {
+                fmt.Printf("[%s] req %d: allowed  (count %d/%d)\n",
+                    r.ID, i, r.Current, r.Max)
+            } else {
+                fmt.Printf("[%s] req %d: BLOCKED  (retry in %s, resets at %s)\n",
+                    r.ID, i, r.RetryAfter.Round(time.Second), r.ExpiresAt.Format("15:04:05"))
+            }
         }
     }
 }
 ```
 
-**Output** (first 5 requests are allowed, the next 2 are denied):
+**Output** (first 3 pass burst, 4th blocked on burst but not sustained):
 
 ```
-Request 1: ALLOWED  (remaining: 4)
-Request 2: ALLOWED  (remaining: 3)
-Request 3: ALLOWED  (remaining: 2)
-Request 4: ALLOWED  (remaining: 1)
-Request 5: ALLOWED  (remaining: 0)
-Request 6: DENIED   (retry after 8s)
-Request 7: DENIED   (retry after 7s)
+[burst] req 1: allowed  (count 1/3)
+[sustained] req 1: allowed  (count 1/10)
+[burst] req 2: allowed  (count 2/3)
+[sustained] req 2: allowed  (count 2/10)
+[burst] req 3: allowed  (count 3/3)
+[sustained] req 3: allowed  (count 3/10)
+[burst] req 4: BLOCKED  (retry in 9s, resets at 10:15:09)
+[sustained] req 4: allowed  (count 4/10)
+[burst] req 5: BLOCKED  (retry in 8s, resets at 10:15:09)
+[sustained] req 5: allowed  (count 5/10)
 ```
 
 ---
 
 ## Backends
 
-### In-Memory LRU (single process)
+### In-memory LRU
 
 ```go
-import "github.com/logocomune/yarl/v3/integration/limiter/lruyarl"
+import "github.com/logocomune/yarl/v4/integration/backend/lrubackend"
 
-backend, err := lruyarl.New(1000) // track up to 1 000 keys
+rules := []yarl.Rule{
+    {ID: "per-ip-minute", TTL: time.Minute, MaxRequests: 60},
+    {ID: "per-ip-hour",   TTL: time.Hour,   MaxRequests: 1000},
+}
+
+// One expirable.LRU is created per rule, each with that rule's TTL.
+// sizePerRule = max distinct user keys tracked per rule (e.g. concurrent IPs).
+backend := lrubackend.New(rules, 10_000)
 ```
 
-The LRU cache is bounded: when full it evicts the least recently used key. Suitable for single-process deployments where counters can be lost on restart.
+Different window durations coexist correctly: each rule has its own cache, sized and timed independently. No shared global expiry.
 
 ---
 
-### Redis — go-redis (recommended)
+### Redis — standalone
 
 ```go
 import (
     "github.com/redis/go-redis/v9"
-    "github.com/logocomune/yarl/v3/integration/limiter/goredisyarl"
+    "github.com/logocomune/yarl/v4/integration/backend/redisbackend"
 )
 
 client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
-backend := goredisyarl.NewPool(client)
+defer client.Close()
+
+backend := redisbackend.NewFromClient(client)
+// caller owns the client lifecycle
 ```
 
-Middleware helpers also support both ownership models: use
-`NewConfigurationWithGoRedis(...)` to let YARL create the Redis client, or
-`NewConfigurationWithRedisClient(...)` to reuse an existing client. If YARL
-creates the client internally, call `conf.Close()` during shutdown.
+Or let YARL manage the connection:
+
+```go
+backend := redisbackend.NewStandalone("localhost:6379", 0)
+defer backend.Close()
+```
+
+---
+
+### Redis — Sentinel (automatic failover)
+
+```go
+backend := redisbackend.NewSentinel(
+    "mymaster",
+    []string{"sentinel1:26379", "sentinel2:26379"},
+    0,
+)
+defer backend.Close()
+```
+
+`NewSentinel` uses `redis.FailoverClient` under the hood. If the master fails, Sentinel promotes a replica and the client reconnects automatically.
+
+---
+
+### Single pipeline round-trip (BatchBackend)
+
+`RedisBackend` implements `BatchBackend`. When `Limiter.Check` detects this, it packs all rules into **one pipeline** — N rules cost one network round-trip, not N.
+
+```
+Request with 3 rules → 1 pipeline: [INCR r1, ExpireNX r1, TTL r1, INCR r2, ExpireNX r2, TTL r2, INCR r3, ExpireNX r3, TTL r3]
+                                                        └─────────────────── single Exec ──────────────────────────────┘
+```
+
+This is automatic — no configuration needed. The `LRU` backend does not implement `BatchBackend` (in-process loop is negligible).
+
+---
+
+### Custom backend
+
+```go
+type MyBackend struct{}
+
+func (b *MyBackend) IncAndGetTTL(
+    ctx context.Context, key string, ttl time.Duration,
+) (count int64, remaining time.Duration, err error) {
+    // atomically: INCR key, set expiry only on creation, return (count, remaining)
+    return count, remaining, nil
+}
+
+limiter := yarl.New(&MyBackend{}, rules...)
+```
+
+To opt into the single-round-trip path, also implement `BatchBackend`:
+
+```go
+func (b *MyBackend) IncAndGetTTLBatch(
+    ctx context.Context, entries []yarl.BatchEntry,
+) ([]yarl.BatchResult, error) {
+    // process all entries in one operation
+}
+```
+
+`Limiter.Check` will use the batch path automatically.
 
 ---
 
 ## HTTP Middleware (`net/http`)
 
-The `httpratelimit` package wraps any `http.HandlerFunc`:
-
 ```go
-package main
-
 import (
     "net/http"
     "time"
 
-    "github.com/logocomune/yarl/v3/integration/httpratelimit"
+    "github.com/logocomune/yarl/v4"
+    "github.com/logocomune/yarl/v4/integration/backend/lrubackend"
+    "github.com/logocomune/yarl/v4/integration/middleware/httpratelimit"
 )
 
 func main() {
-    // 100 requests per minute, in-memory LRU, limit by client IP
-    conf := httpratelimit.NewConfigurationWithLru("api", 10000, 100, time.Minute)
-    conf.UseIP = true
+    rules := []yarl.Rule{
+        {ID: "burst",     TTL: 10 * time.Second, MaxRequests: 10},
+        {ID: "sustained", TTL: time.Minute,      MaxRequests: 100},
+    }
+    limiter := yarl.New(lrubackend.New(rules, 10_000), rules...)
 
-    handler := httpratelimit.New(conf, func(w http.ResponseWriter, r *http.Request) {
-        w.Write([]byte("Hello!"))
-    })
+    conf := httpratelimit.NewConfiguration(limiter)
+    conf.UseIP = true                            // limit by client IP
+    // conf.Headers = []string{"X-Tenant-ID"}   // add header value to identity key
 
-    http.ListenAndServe(":8080", handler)
+    http.ListenAndServe(":8080", httpratelimit.New(conf, myHandler))
 }
 ```
 
-### Rate limit by IP + custom header
+### Identity key composition
 
-```go
-conf := httpratelimit.NewConfigurationWithLru("api", 10000, 100, time.Minute)
-conf.UseIP = true
-conf.Headers = []string{"X-Tenant-ID"} // separate bucket per tenant
+The middleware builds `userKey` by concatenating the enabled components:
+
+| `UseIP` | `Headers` | `userKey` example |
+|---------|-----------|-------------------|
+| `true`  | —         | `203.0.113.5` |
+| `false` | `["X-User-ID"]` | `:alice:` |
+| `true`  | `["X-Tenant-ID"]` | `203.0.113.5:acme:` |
+
+### HTTP 429 response
+
+When any rule is violated the middleware returns `429 Too Many Requests` with a JSON body listing every violated rule:
+
+```json
+{
+  "violations": [
+    {
+      "id": "burst",
+      "retry_after_seconds": 8,
+      "resets_at": "2026-04-24T10:15:09Z"
+    }
+  ]
+}
 ```
 
-### Using a Redis backend (go-redis)
-
-```go
-conf := httpratelimit.NewConfigurationWithGoRedis(
-    "api",            // prefix
-    "localhost:6379", // Redis address
-    0,                // Redis DB
-    100,              // max requests
-    time.Minute,      // window
-)
-defer conf.Close()
-conf.UseIP = true
-```
-
-### Response headers set by the middleware
-
-| Header | Description |
-|---|---|
-| `X-RateLimit-Limit` | Maximum requests allowed in the window |
-| `X-RateLimit-Remaining` | Requests remaining in the current window |
-| `X-RateLimit-Reset` | Unix timestamp when the current window resets |
-| `Retry-After` | Seconds until the next window (only on HTTP 429) |
+All rules are always evaluated — a response may contain multiple violations.
 
 ---
 
 ## Gin Middleware
 
 ```go
-package main
-
 import (
-    "time"
-
     "github.com/gin-gonic/gin"
-    "github.com/logocomune/yarl/v3/integration/ginratelimit"
-    "github.com/logocomune/yarl/v3/integration/limiter/lruyarl"
+    "github.com/logocomune/yarl/v4/integration/middleware/ginratelimit"
 )
 
-func main() {
-    backend, _ := lruyarl.New(10000)
-    conf := ginratelimit.NewConfiguration("api", backend, 100, time.Minute)
-    conf.UseIP = true
-    conf.Headers = []string{"X-Tenant-ID"}
-
-    r := gin.Default()
-    r.Use(ginratelimit.New(conf))
-
-    r.GET("/ping", func(c *gin.Context) {
-        c.JSON(200, gin.H{"message": "pong"})
-    })
-
-    r.Run(":8080")
-}
-```
-
-Or use the built-in Redis helper:
-
-```go
-conf := ginratelimit.NewConfigurationWithGoRedis(
-    "api",            // prefix
-    "localhost:6379", // Redis address
-    0,                // Redis DB
-    100,              // max requests
-    time.Minute,      // window
-)
-defer conf.Close()
+conf := ginratelimit.NewConfiguration(limiter)
 conf.UseIP = true
+
+r := gin.Default()
 r.Use(ginratelimit.New(conf))
+r.GET("/api", myHandler)
+r.Run(":8080")
 ```
 
 ---
 
 ## API Reference
 
-### `yarl.New`
-
-```go
-func New(prefix string, l Limiter, max int64, timeWindow time.Duration) Yarl
-```
-
-Creates a new rate limiter.
-
-| Parameter | Description |
-|---|---|
-| `prefix` | Namespace for cache keys (avoids collisions when sharing a backend) |
-| `l` | Storage backend implementing the `Limiter` interface |
-| `max` | Maximum number of operations allowed per `timeWindow` |
-| `timeWindow` | Duration of each rate-limit window |
-
-### `Yarl.IsAllow`
-
-```go
-func (y *Yarl) IsAllow(key string) (*Resp, error)
-```
-
-Checks whether the operation identified by `key` is within the configured limit. Returns `*Resp` on success.
-
-### `Yarl.IsAllowWithLimit`
-
-```go
-func (y *Yarl) IsAllowWithLimit(key string, max int64, tWindow time.Duration) (*Resp, error)
-```
-
-Same as `IsAllow` but overrides `max` and `tWindow` for this specific call. Useful when different callers need different limits on a shared `Yarl` instance.
-
-### `Resp` fields
+### `yarl.Rule`
 
 | Field | Type | Description |
 |---|---|---|
-| `IsAllowed` | `bool` | `true` if the request is within the limit |
-| `Current` | `int64` | Counter value after this request |
-| `Max` | `int64` | Configured limit |
-| `Remain` | `int64` | Requests remaining in the current window |
-| `NextReset` | `int64` | Unix timestamp of the next window reset |
-| `RetryAfter` | `int64` | Seconds until the next reset |
+| `ID` | `string` | Key namespace; unique per `Limiter`. Backend key: `{ID}:{userKey}` |
+| `TTL` | `time.Duration` | Window duration and Redis key expiry |
+| `MaxRequests` | `int64` | Allowed requests per window |
 
-### `Limiter` interface
+### `yarl.New`
 
 ```go
-type Limiter interface {
-    Inc(key string, ttlSeconds int64) (int64, error)
+func New(b Backend, rules ...Rule) *Limiter
+```
+
+Rules are fixed for the lifetime of the `Limiter`.
+
+### `Limiter.Check`
+
+```go
+func (l *Limiter) Check(ctx context.Context, userKey string) ([]RuleResult, error)
+```
+
+Evaluates every rule. All rules are always checked — no short-circuit on first violation. Uses a single pipeline round-trip when the backend implements `BatchBackend`.
+
+### `yarl.Summarize`
+
+```go
+func Summarize(results []RuleResult) (allowed bool, worst *RuleResult)
+```
+
+Convenience helper: returns whether all rules passed and, if not, the violated rule with the **furthest `ExpiresAt`** — the worst case for the caller to retry. Returns `(true, nil)` when all rules are allowed.
+
+```go
+results, err := limiter.Check(ctx, userKey)
+if err != nil { /* ... */ }
+
+allowed, worst := yarl.Summarize(results)
+if !allowed {
+    log.Printf("blocked by rule %q, retry in %s", worst.ID, worst.RetryAfter.Round(time.Second))
 }
 ```
 
-Implement this interface to plug in a custom backend (e.g. Memcached, DynamoDB).
+Use `Check` directly when you need per-rule detail (e.g. to set multiple response headers). Use `Summarize` when you only need a single go/no-go decision and the worst-case retry window.
 
----
+### `yarl.RuleResult`
 
-## Custom Backend Example
+| Field | Type | Description |
+|---|---|---|
+| `ID` | `string` | Rule ID |
+| `Allowed` | `bool` | `true` when `Current ≤ Max` |
+| `Current` | `int64` | Counter value after this increment |
+| `Max` | `int64` | Copy of `Rule.MaxRequests` |
+| `ExpiresAt` | `time.Time` | When the current window resets |
+| `RetryAfter` | `time.Duration` | > 0 only when `Allowed == false` |
+
+### `yarl.Backend`
 
 ```go
-type MyBackend struct{ /* ... */ }
-
-func (b *MyBackend) Inc(key string, ttlSeconds int64) (int64, error) {
-    // atomically increment counter for key, set TTL, return new value
-    return newValue, nil
+type Backend interface {
+    IncAndGetTTL(ctx context.Context, key string, ttl time.Duration) (int64, time.Duration, error)
 }
-
-limiter := yarl.New("prefix", &MyBackend{}, 100, time.Minute)
 ```
+
+### `yarl.BatchBackend`
+
+```go
+type BatchBackend interface {
+    Backend
+    IncAndGetTTLBatch(ctx context.Context, entries []BatchEntry) ([]BatchResult, error)
+}
+```
+
+Implement to process multiple keys in a single round-trip. `Limiter.Check` detects and uses it automatically.
 
 ---
 
-## Test Coverage
+## Redis key schema
 
-| Package | Coverage |
-|---|---|
-| `yarl` (core) | **100%** |
-| `lruyarl` | **100%** |
-| `radixyarl` | 83% |
-| `goredisyarl` | 82% |
-| `redigoyarl` | 80% |
-| `ginratelimit` | 79% |
-| `httpratelimit` | 77% |
+```
+{Rule.ID}:{userKey}
+```
 
-> Redis-backend packages have lower coverage because the `NewConfigurationWithRadix` factory functions require a live Redis server and are not exercised in unit tests.
+| Rule.ID | userKey | Redis key |
+|---|---|---|
+| `burst` | `203.0.113.5` | `burst:203.0.113.5` |
+| `per-user-hour` | `user:42` | `per-user-hour:user:42` |
+| `per-tenant-day` | `acme` | `per-tenant-day:acme` |
+
+No time component in the key. One key per `(rule, identity)`. When Redis expires the key the next request recreates it with a fresh TTL.
+
+---
+
+## Requirements
+
+- Go ≥ 1.21
+- Redis ≥ 7.0 (for `EXPIRE NX`)
 
 ---
 

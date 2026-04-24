@@ -1,10 +1,10 @@
-module github.com/logocomune/yarl/v3
+module github.com/logocomune/yarl/v4
 
 go 1.25.7
 
 require (
 	github.com/gin-gonic/gin v1.12.0
-	github.com/hashicorp/golang-lru v1.0.2
+	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/redis/go-redis/v9 v9.18.0
 	github.com/stretchr/testify v1.11.1
 )
