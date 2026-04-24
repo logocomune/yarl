@@ -69,7 +69,10 @@ func main() {
     ctx := context.Background()
 
     for i := 1; i <= 5; i++ {
-        results, _ := limiter.Check(ctx, "user:42")
+        results, err := limiter.Check(ctx, "user:42")
+        if err != nil {
+            panic(err)
+        }
         for _, r := range results {
             if r.Allowed {
                 fmt.Printf("[%s] req %d: allowed  (count %d/%d)\n",
@@ -372,9 +375,21 @@ No time component in the key. One key per `(rule, identity)`. When Redis expires
 
 ---
 
+## Examples
+
+Runnable examples are in [`_example/`](./_example):
+
+| Directory | Backend | Description |
+|---|---|---|
+| [`lru/`](./_example/lru) | In-memory LRU | HTTP server with middleware + manual `Check`/`Summarize` |
+| [`standalone/`](./_example/standalone) | Redis standalone | Multi-limiter chaining (per-IP + per-user) |
+| [`sentinel/`](./_example/sentinel) | Redis Sentinel | Automatic failover setup |
+
+---
+
 ## Requirements
 
-- Go ≥ 1.21
+- Go ≥ 1.25
 - Redis ≥ 7.0 (for `EXPIRE NX`)
 
 ---
