@@ -39,6 +39,44 @@ BatchBackend  — optional extension of Backend for single-round-trip multi-key 
 
 A **userKey** is any string that identifies who is being limited — a client IP, a user ID, a tenant, or a combination. The backend key is `{rule.ID}:{userKey}`.
 
+### Optional IP identities and IPv6 aggregation
+
+Use `NewWithConfiguration` to group IPv6 clients by network prefix before any
+Redis or LRU access:
+
+```go
+limiter, err := yarl.NewWithConfiguration(
+    backend,
+    yarl.Configuration{IPv6PrefixBits: 64},
+    rules...,
+)
+if err != nil {
+    return err
+}
+
+results, err := limiter.Check(ctx, "2001:db8:abcd:12::1")
+```
+
+With `/64`, `2001:db8:abcd:12::1` and `2001:db8:abcd:12::2` share the
+identity `2001:db8:abcd:12::/64`. IPv4 addresses remain individual canonical
+addresses; IPv4-mapped IPv6 addresses share the corresponding IPv4 counter.
+
+`IPv6PrefixBits: 0` disables normalization, preserving arbitrary string keys.
+`New` remains unchanged. Values `1..128` enable IP-only mode; choose `64` for
+typical IPv6 aggregation, `56` for broader grouping, or `128` for individual
+IPv6 addresses. Values outside `0..128` fail construction.
+
+In IP-only mode, `Check` accepts bare IP addresses only. Invalid addresses,
+zones, ports, and CIDR prefixes return `ErrInvalidIPIdentity` without accessing
+storage. Composite keys are unsupported; a composed string might accidentally
+parse as valid IPv6. The existing HTTP and Gin middleware work with this
+mode when `UseIP = true` and `Headers` is empty. Header-only or composite
+identities require generic-key mode. Only trust client IP headers supplied by
+trusted proxies; normalization does not authenticate forwarded headers.
+
+See [IP identity configuration](docs/ip-identities.md) for rollout, operational
+tradeoffs, and verification commands.
+
 ---
 
 ## Quick start — in-memory LRU

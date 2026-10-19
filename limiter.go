@@ -61,8 +61,9 @@ type BatchBackend interface {
 
 // Limiter evaluates a fixed set of [Rule] values on every [Limiter.Check] call.
 type Limiter struct {
-	backend Backend
-	rules   []Rule
+	backend        Backend
+	rules          []Rule
+	ipv6PrefixBits int
 }
 
 // New creates a Limiter backed by b. Rules are fixed for the lifetime of the Limiter.
@@ -74,7 +75,16 @@ func New(b Backend, rules ...Rule) *Limiter {
 // Check evaluates every Rule against userKey and returns one [RuleResult] per Rule.
 // All rules are always evaluated; Check does not short-circuit on first violation.
 // If the backend implements [BatchBackend], all rules are evaluated in a single round-trip.
+// With IP mode enabled by [NewWithConfiguration], userKey must be an unzoned IP
+// address. Invalid identities return [ErrInvalidIPIdentity] before backend access.
 func (l *Limiter) Check(ctx context.Context, userKey string) ([]RuleResult, error) {
+	if l.ipv6PrefixBits != 0 {
+		var err error
+		userKey, err = normalizeIPIdentity(userKey, l.ipv6PrefixBits)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if bb, ok := l.backend.(BatchBackend); ok {
 		return l.checkBatch(ctx, userKey, bb)
 	}

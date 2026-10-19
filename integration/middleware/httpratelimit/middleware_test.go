@@ -71,6 +71,26 @@ func TestMiddleware_AllowedRequest(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
+func TestMiddleware_IPIdentityRotation(t *testing.T) {
+	limiter, err := yarl.NewWithConfiguration(newStubBackend(time.Minute, nil),
+		yarl.Configuration{IPv6PrefixBits: 64}, yarl.Rule{ID: "ip", TTL: time.Minute, MaxRequests: 1})
+	require.NoError(t, err)
+	configuration := NewConfiguration(limiter)
+	configuration.UseIP = true
+	handler := New(configuration, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	for index, address := range []string{"2001:db8::1", "2001:db8::2", "2001:db8:0:1::1"} {
+		request := httptest.NewRequest(http.MethodGet, "/", nil)
+		request.RemoteAddr = "[" + address + "]:1234"
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		want := http.StatusOK
+		if index == 1 {
+			want = http.StatusTooManyRequests
+		}
+		require.Equal(t, want, response.Code)
+	}
+}
+
 func TestMiddleware_BlockedRequest_Returns429(t *testing.T) {
 	conf := NewConfiguration(newLimiter(1, 30*time.Second, nil))
 	conf.UseIP = true

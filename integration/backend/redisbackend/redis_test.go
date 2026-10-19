@@ -25,6 +25,26 @@ func redisClient(t *testing.T) *redis.Client {
 	return client
 }
 
+func TestIPIdentityRotationSharesCounter(t *testing.T) {
+	client := redisClient(t)
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+	ctx := context.Background()
+	rule := yarl.Rule{ID: fmt.Sprintf("test:ipv6:%d", time.Now().UnixNano()), TTL: time.Minute, MaxRequests: 1}
+	key := rule.ID + ":2001:db8::/64"
+	t.Cleanup(func() { require.NoError(t, client.Del(ctx, key).Err()) })
+	limiter, err := yarl.NewWithConfiguration(NewFromClient(client), yarl.Configuration{IPv6PrefixBits: 64}, rule)
+	require.NoError(t, err)
+	for index, address := range []string{"2001:db8::1", "2001:db8::2"} {
+		results, err := limiter.Check(ctx, address)
+		require.NoError(t, err)
+		require.Equal(t, int64(index+1), results[0].Current)
+		require.Equal(t, index == 0, results[0].Allowed)
+	}
+	count, err := client.Get(ctx, key).Int64()
+	require.NoError(t, err)
+	require.Equal(t, int64(2), count)
+}
+
 func TestRedisBackend_IncAndGetTTL_Increments(t *testing.T) {
 	client := redisClient(t)
 	defer client.Close()

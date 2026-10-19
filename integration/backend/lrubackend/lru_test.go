@@ -23,6 +23,19 @@ func TestNew(t *testing.T) {
 	assert.Len(t, b.lrus, 1)
 }
 
+func TestIPIdentityRotationSharesCounter(t *testing.T) {
+	policies := []yarl.Rule{{ID: "ipv6", TTL: time.Minute, MaxRequests: 1}}
+	backend := New(policies, 1)
+	limiter, err := yarl.NewWithConfiguration(backend, yarl.Configuration{IPv6PrefixBits: 64}, policies...)
+	require.NoError(t, err)
+	for index, address := range []string{"2001:db8::1", "2001:db8::2", "2001:db8::ffff"} {
+		results, err := limiter.Check(context.Background(), address)
+		require.NoError(t, err)
+		require.Equal(t, int64(index+1), results[0].Current)
+		require.Equal(t, index == 0, results[0].Allowed)
+	}
+}
+
 func TestLRUBackend_IncAndGetTTL_Increments(t *testing.T) {
 	ctx := context.Background()
 	b := New(rules(time.Minute), 100)

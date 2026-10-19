@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	yarl "github.com/logocomune/yarl/v4"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type stubBackend struct {
@@ -78,12 +79,33 @@ func TestGinMiddleware_AllowedRequest(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
+func TestGinMiddleware_IPIdentityRotation(t *testing.T) {
+	limiter, err := yarl.NewWithConfiguration(newStubBackend(time.Minute, nil),
+		yarl.Configuration{IPv6PrefixBits: 64}, yarl.Rule{ID: "ip", TTL: time.Minute, MaxRequests: 1})
+	require.NoError(t, err)
+	configuration := NewConfiguration(limiter)
+	configuration.UseIP = true
+	router := newRouter(configuration)
+	require.NoError(t, router.SetTrustedProxies(nil))
+	for index, address := range []string{"2001:db8::1", "2001:db8::2", "2001:db8:0:1::1"} {
+		request := httptest.NewRequest(http.MethodGet, "/", nil)
+		request.RemoteAddr = "[" + address + "]:1234"
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		want := http.StatusOK
+		if index == 1 {
+			want = http.StatusTooManyRequests
+		}
+		require.Equal(t, want, response.Code)
+	}
+}
+
 func TestGinMiddleware_BlockedRequest_Returns429(t *testing.T) {
 	conf := NewConfiguration(newLimiter(1, 30*time.Second, nil))
 	conf.UseIP = true
 
 	r := newRouter(conf)
-	doRequest(r, map[string]string{"X-Forwarded-For": "1.2.3.4"}) // first: allowed
+	doRequest(r, map[string]string{"X-Forwarded-For": "1.2.3.4"})      // first: allowed
 	w := doRequest(r, map[string]string{"X-Forwarded-For": "1.2.3.4"}) // second: blocked
 
 	assert.Equal(t, http.StatusTooManyRequests, w.Code)
